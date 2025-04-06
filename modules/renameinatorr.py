@@ -211,7 +211,7 @@ def get_count_for_instance_type(count, radarr_count, sonarr_count, instance_type
 
 
 def process_instance(app, rename_folders, server_name, instance_type, count, tag_name, logger,
-                     radarr_count=None, sonarr_count=None, disable_batching=False):
+                     radarr_count=None, sonarr_count=None, disable_batching=False, only_check_renamed=False):
     """
     Processes the data for a specific instance.
 
@@ -231,7 +231,11 @@ def process_instance(app, rename_folders, server_name, instance_type, count, tag
     default_batch_size = 100
 
     # Fetch data related to the instance (Sonarr or Radarr)
-    media_dict = handle_starr_data(app, server_name, instance_type, logger, include_episode=False)
+    all_items_media_dict = handle_starr_data(app, server_name, instance_type, logger, include_episode=False)
+    if only_check_renamed:
+        media_dict = get_items_that_need_to_be_renamed(app, logger, all_items_media_dict)
+    else:
+        media_dict = all_items_media_dict
 
     # fetch what we should actually use for the count object
     count = get_count_for_instance_type(count, radarr_count, sonarr_count, instance_type, logger)
@@ -251,6 +255,9 @@ def process_instance(app, rename_folders, server_name, instance_type, count, tag
             logger.info("All media is tagged. Removing tags...")
             app.remove_tags(media_ids, tag_id)
             all_items_without_tags = handle_starr_data(app, server_name, instance_type, logger, include_episode=False)
+            if only_check_renamed:
+                all_items_without_tags = get_items_that_need_to_be_renamed(app, logger, all_items_without_tags)
+
 
         media_dict = all_items_without_tags
 
@@ -273,33 +280,8 @@ def process_instance(app, rename_folders, server_name, instance_type, count, tag
         media_dict = chunk
         logger.debug(f"media dict:\n{json.dumps(media_dict, indent=4)}")
         # Process each item in the fetched data
-        rename_response = []
         if media_dict:
             logger.info("Processing data... This may take a while.")
-            progress_bar = tqdm(media_dict, desc=f"Processing single batch for '{server_name}'...", unit="items", disable=None, leave=True)
-            for item in progress_bar:
-                file_info = {}
-                # Fetch rename list and sort it by existingPath
-                rename_response = app.get_rename_list(item['media_id'])
-                rename_response.sort(key=lambda x: x['existingPath'])
-
-                # Process each item in the rename list to get file rename information
-                for items in rename_response:
-                    existing_path = items.get('existingPath', None)
-                    new_path = items.get('newPath', None)
-
-                    # Remove 'Season' folders from paths if they exist
-                    pattern = r"Season \d{1,2}/"
-                    if re.search(pattern, existing_path) or re.search(pattern, new_path):
-                        existing_path = re.sub(pattern, "", existing_path)
-                        new_path = re.sub(pattern, "", new_path)
-
-                    file_info[existing_path] = new_path
-
-                # Update item with file rename information
-                item["new_path_name"] = None
-                item["file_info"] = file_info
-            logger.info(str(progress_bar))
             # If not in dry run, perform file renaming
             if not dry_run:
                 # Get media IDs and initiate file renaming
@@ -371,12 +353,46 @@ def process_instance(app, rename_folders, server_name, instance_type, count, tag
     logger.info(str(chunk_progress_bar))
     return final_media_dict
 
+def get_items_that_need_to_be_renamed(app, logger, media_dict):
+    if media_dict:
+        progress_bar = tqdm(media_dict, desc=f"Finding items that need to be reanmed...", unit="items", disable=None, leave=True)
+        items_to_rename = []
+        for item in progress_bar:
+            rename_response = app.get_rename_list(item['media_id'])
+            if rename_response:
+                items_to_rename.append(item)
+            file_info = {}
+            # Fetch rename list and sort it by existingPath
+            rename_response.sort(key=lambda x: x['existingPath'])
+
+            # Process each item in the rename list to get file rename information
+            for items in rename_response:
+                existing_path = items.get('existingPath', None)
+                new_path = items.get('newPath', None)
+
+                # Remove 'Season' folders from paths if they exist
+                pattern = r"Season \d{1,2}/"
+                if re.search(pattern, existing_path) or re.search(pattern, new_path):
+                    existing_path = re.sub(pattern, "", existing_path)
+                    new_path = re.sub(pattern, "", new_path)
+
+                file_info[existing_path] = new_path
+
+            # Update item with file rename information
+            item["new_path_name"] = None
+            item["file_info"] = file_info
+
+        logger.info(f"found {len(items_to_rename)} items to rename!")
+        media_dict = items_to_rename
+    return media_dict
+
 def get_chunks_for_run(media_dict, chunk_size, logger):
     chunks = []
 
     # Iterate and chunk the list
-    for i in range(0, len(media_dict), chunk_size):
-        chunks.append(media_dict[i:i + chunk_size])
+    if media_dict:
+        for i in range(0, len(media_dict), chunk_size):
+            chunks.append(media_dict[i:i + chunk_size])
 
     return chunks
 
@@ -409,23 +425,26 @@ def main(config):
         radarr_count = config.script_config.get('radarr_count', None)
         sonarr_count = config.script_config.get('sonarr_count', None)
         disable_batching = config.script_config.get('disable_batching', False)
+        only_check_renamed = config.script_config.get('only_check_renamed', False)
 
         valid = validate(config, script_config, logger)
         # Log script settings
         table = [
             ["Script Settings"]
         ]
-        logger.debug(create_table(table))
-        logger.debug(f'{"Dry_run:":<20}{dry_run}')
-        logger.debug(f'{"Log level:":<20}{log_level}')
-        logger.debug(f'{"Instances:":<20}{instances}')
-        logger.debug(f'{"Rename Folders:":<20}{rename_folders}')
-        logger.debug(f'{"Count:":<20}{count}')
-        logger.debug(f'{"Tag Name:":<20}{tag_name}')
-        logger.debug(f'{"Radarr Count:":<20}{radarr_count}')
-        logger.debug(f'{"Sonarr Count:":<20}{sonarr_count}')
-        logger.debug(f'{"Disable Batching":<20}{disable_batching}')
-        logger.debug(create_bar("-"))
+        logger.info(create_table(table))
+        logger.info(f'{"Dry_run:":<20}{dry_run}')
+        logger.info(f'{"Log level:":<20}{log_level}')
+        logger.info(f'{"Instances:":<20}{instances}')
+        logger.info(f'{"Rename Folders:":<20}{rename_folders}')
+        logger.info(f'{"Count:":<20}{count}')
+        logger.info(f'{"Tag Name:":<20}{tag_name}')
+        logger.info(f'{"Radarr Count:":<20}{radarr_count}')
+        logger.info(f'{"Sonarr Count:":<20}{sonarr_count}')
+        logger.info(f'{"Disable Batching":<20}{disable_batching}')
+        logger.info(f'{"Only Check Renamed":<20}{only_check_renamed}')
+
+        logger.info(create_bar("-"))
 
         # Handle dry run settings
         if dry_run:
@@ -449,7 +468,8 @@ def main(config):
 
                     # Process data for the instance and store in output_dict
                     data = process_instance(app, rename_folders, server_name, instance_type, count, tag_name, logger,
-                                            radarr_count=radarr_count, sonarr_count=sonarr_count, disable_batching=disable_batching)
+                                            radarr_count=radarr_count, sonarr_count=sonarr_count, disable_batching=disable_batching,
+                                            only_check_renamed=only_check_renamed)
                     output_dict[instance] = {
                         "server_name": server_name,
                         "data": data

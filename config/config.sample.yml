@@ -421,7 +421,13 @@ renameinatorr:
   # If batching is disabled and all count values are 0, this will process all items in a single batch.  All items will either be your entire library (if no tag_name
   # is specified) or it will be all untagged items.
   # If a tag name is specified and all items are already tagged, it will remove all tags first and then process your library.
-  disable_batching: False
+  disable_batching: false
+  # this will first check if there are any media files that need to be renamed and then only process those specific items.
+  # NOTE: this means that if a media file would not need to be renamed but a folder would this case would not be detected and the folder would remain unchanged.
+  #       this could happen if there is specific metadata on the folder that doesn't exist on the media file.
+  #       this is due to the *arr apps not providing a check for folders, but they do provide a check for files.
+  only_check_renamed: false
+
 nohl:
   # This script will find all files that are not hardlinked and will process them in radarr
   # and sonarr. This is useful for finding files that are not hardlinked and wish to have 100%
