@@ -93,7 +93,7 @@ def build_search_index(prefix_index, title, asset, asset_type, logger, debug_ite
     asset_type_processed_forms = prefix_index[asset_type]
     processed = preprocess_name(title)
     debug_build_index = debug_items and len(debug_items) > 0 and processed in debug_items
-    
+
     if debug_build_index:
         logger.info('debug_build_search_index')
         logger.info(processed)
@@ -112,7 +112,7 @@ def build_search_index(prefix_index, title, asset, asset_type, logger, debug_ite
         if word not in asset_type_processed_forms:
             asset_type_processed_forms[word] = list() #maybe consider moving to dequeue?
         asset_type_processed_forms[word].append(asset)
-        
+
 
         # also add the prefix.  if shorter than prefix_length then it was already added above.
         if len(word) > prefix_length:
@@ -133,7 +133,7 @@ def search_matches(prefix_index, title, asset_type, logger, debug_search=False):
 
     processed_title = preprocess_name(title)
     asset_type_processed_forms = prefix_index[asset_type]
-    
+
 
     if debug_search:
         logger.info('debug_search_matches')
@@ -361,7 +361,7 @@ def categorize_files(folder_path, logger):
                     # Categorize as a series
                     if any(file.startswith(base_name) and any(base_name + season_name in file for season_name in season_name_info) for file in search_matches(prefix_index, title, 'files', logger)) or any(word in file for word in season_name_info):
                         # Check if the series entry already exists in the assets dictionary
-                        series_entry = next((d for d in prefix_index['assets'].get(normalize_title[:prefix_length], []) 
+                        series_entry = next((d for d in prefix_index['assets'].get(normalize_title[:prefix_length], [])
                                             if d['type'] == 'series' and d['normalized_title'] == normalize_title and d['year'] == year), None)
                         if series_entry is None:
                             # If not, add a new series entry
@@ -686,9 +686,9 @@ def handle_starr_data(app, server_name, instance_type, logger, include_episode=F
     media_dict = []  # Initialize an empty list to hold media data
     media = app.get_media()  # Fetch media data from the Radarr or Sonarr instance
     if media:
-        progress_bar = tqdm(media, desc=f"Getting {server_name.capitalize()} data", total=len(media), disable=None, leave=True)
+        logger.info(f"Getting {server_name.capitalize()} data")
         start_time = datetime.datetime.now()
-        for item in progress_bar:
+        for item in media:
             # Fetch relevant data based on the instance type (Radarr or Sonarr)
             if instance_type == "radarr":
                 file_id = item.get('movieFile', {}).get('id', None)  # Fetch file ID for Radarr
@@ -1020,7 +1020,7 @@ def get_assets_files(source_dirs, logger, debug_items=None):
     # Iterate through each source directory
     for source_dir in source_dirs:
         new_assets = categorize_files(source_dir, logger)
-        
+
         if new_assets:
             # Merge new_assets with final_assets
             for new in new_assets:
@@ -1143,13 +1143,13 @@ def is_match(asset, media, logger):
         (compare_strings(media.get('normalized_title', ''), asset.get('normalized_title', '')), "Normalized string comparison match"),
     ]
     id_match_criteria = [
-    (media.get('db_id') is not None and asset.get('tvdb_id') is not None and media['db_id'] == asset.get('tvdb_id'), 
+    (media.get('db_id') is not None and asset.get('tvdb_id') is not None and media['db_id'] == asset.get('tvdb_id'),
      f"Media ID {media.get('db_id')} matches asset TVDB ID {asset.get('tvdb_id')}"),
-    
-    (media.get('db_id') is not None and asset.get('tmdb_id') is not None and media['db_id'] == asset.get('tmdb_id'), 
+
+    (media.get('db_id') is not None and asset.get('tmdb_id') is not None and media['db_id'] == asset.get('tmdb_id'),
      f"Media ID {media.get('db_id')} matches asset TMDB ID {asset.get('tmdb_id')}"),
-    
-    (media.get('imdb_id') is not None and asset.get('imdb_id') is not None and media['imdb_id'] == asset.get('imdb_id'), 
+
+    (media.get('imdb_id') is not None and asset.get('imdb_id') is not None and media['imdb_id'] == asset.get('imdb_id'),
      f"Media ID {media.get('imdb_id')} matches asset IMDB ID {asset.get('imdb_id')}")
     ]
 

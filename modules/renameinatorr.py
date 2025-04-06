@@ -18,6 +18,7 @@ import json
 import re
 import sys
 import time
+import subprocess
 
 from util.arrpy import StARR
 from util.utility import *
@@ -32,6 +33,32 @@ except ImportError as e:
     exit(1)
 
 script_name = "renameinatorr"
+
+def notify_external_script_of_folder_rename(path_to_script, old_path, new_path, logger):
+    logger.info(f"Calling script at {path_to_script} with arguments '{old_path}', '{new_path}'")
+    try:
+        result = subprocess.run([path_to_script, old_path, new_path],
+                            stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE,
+                            check=True,
+                            text=True)
+        # Capture the output and return the current branch
+        return result.stdout.strip()
+    except Exception as e:
+        # Handle any errors if the command fails
+        logger.error(f"Error: {e}")
+        return None
+
+
+def notify_folder_rename(output_dict, logger, folder_rename_script):
+    for instance, instance_data in output_dict.items():
+        for item in instance_data['data']:
+            if item['new_path_name']:
+                if folder_rename_script:
+                    full_new_path = f"{item['new_root_folder']}/{item['new_path_name']}"
+                    full_old_path = f"{item['root_folder']}/{item['path_name']}"
+                    logger.info(notify_external_script_of_folder_rename(folder_rename_script, full_old_path, full_new_path, logger))
+
 
 def print_output(output_dict, logger):
     """
@@ -227,7 +254,7 @@ def process_instance(app, rename_folders, server_name, instance_type, count, tag
     table = [
         [f"Processing {server_name}"]
     ]
-    logger.debug(create_table(table))
+    logger.info(create_table(table))
     default_batch_size = 100
 
     # Fetch data related to the instance (Sonarr or Radarr)
@@ -372,6 +399,8 @@ def process_folder_rename_batch(app, server_name, logger, batch, instance_type, 
                     if new_item['path_name'] != old_item['path_name']:
                         logger.debug(f"item {new_item['media_id']} changed from {old_item['path_name']} to {new_item['path_name']}")
                         old_item['new_path_name'] = new_item['path_name']
+                        old_item['new_root_folder'] = new_item['root_folder']
+                        # should this also reset the root_folder?
         if tag_id and tag_name:
             media_ids = []
             media_ids = [item['media_id'] for item in batch if tag_id not in item['tags']]
@@ -384,9 +413,9 @@ def process_folder_rename_batch(app, server_name, logger, batch, instance_type, 
 
 def update_items_that_need_to_be_renamed(app, logger, media_dict):
     if media_dict:
-        progress_bar = tqdm(media_dict, desc=f"Finding items that need to be renamed...", unit="items", disable=None, leave=True)
         items_to_rename = []
-        for item in progress_bar:
+        logger.info("Finding items that need to be renamed...")
+        for item in media_dict:
             rename_response = app.get_rename_list(item['media_id'])
             if rename_response:
                 item["needs_to_be_renamed"] = True
@@ -438,24 +467,26 @@ def main(config):
         sonarr_count = config.script_config.get('sonarr_count', None)
         disable_batching = config.script_config.get('disable_batching', False)
         always_rename_folders = config.script_config.get('always_rename_folders', False)
+        folder_rename_script = config.script_config.get('folder_rename_script', None)
 
         valid = validate(config, script_config, logger)
         # Log script settings
         table = [
             ["Script Settings"]
         ]
+        spacing = 30
         logger.info(create_table(table))
-        logger.info(f'{"Dry_run:":<20}{dry_run}')
-        logger.info(f'{"Log level:":<20}{log_level}')
-        logger.info(f'{"Instances:":<20}{instances}')
-        logger.info(f'{"Rename Folders:":<20}{rename_folders}')
-        logger.info(f'{"Count:":<20}{count}')
-        logger.info(f'{"Tag Name:":<20}{tag_name}')
-        logger.info(f'{"Radarr Count:":<20}{radarr_count}')
-        logger.info(f'{"Sonarr Count:":<20}{sonarr_count}')
-        logger.info(f'{"Disable Batching":<20}{disable_batching}')
-        logger.info(f'{"Always Rename Folders":<20}{always_rename_folders}')
-
+        logger.info(f'{"Dry_run:":<{spacing}}{dry_run}')
+        logger.info(f'{"Log level:":<{spacing}}{log_level}')
+        logger.info(f'{"Instances:":<{spacing}}{instances}')
+        logger.info(f'{"Rename Folders:":<{spacing}}{rename_folders}')
+        logger.info(f'{"Count:":<{spacing}}{count}')
+        logger.info(f'{"Tag Name:":<{spacing}}{tag_name}')
+        logger.info(f'{"Radarr Count:":<{spacing}}{radarr_count}')
+        logger.info(f'{"Sonarr Count:":<{spacing}}{sonarr_count}')
+        logger.info(f'{"Disable Batching":<{spacing}}{disable_batching}')
+        logger.info(f'{"Always Rename Folders":<{spacing}}{always_rename_folders}')
+        logger.info(f'{"Folder Rename Script":<{spacing}}{folder_rename_script}')
         logger.info(create_bar("-"))
 
         # Handle dry run settings
@@ -492,6 +523,8 @@ def main(config):
             print_output(output_dict, logger)
             if discord_check(script_name):
                 notification(output_dict, logger)
+            if not dry_run and folder_rename_script:
+                notify_folder_rename(output_dict, logger, folder_rename_script)
         else:
             logger.info("No media items to rename.")
     except KeyboardInterrupt:
