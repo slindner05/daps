@@ -110,12 +110,13 @@ def main(config: SimpleNamespace) -> None:
                                         logger.info(f"{item['title']} would have been deleted with id: {item['media_id']}")
 
                                 # Send notification with deleted items
-                                send_notification(
-                                    logger=logger,
-                                    module_name=config.module_name,
-                                    config=config,
-                                    output=output,
-                                )
+                                if output:
+                                    send_notification(
+                                        logger=logger,
+                                        module_name=config.module_name,
+                                        config=config,
+                                        output=output,
+                                    )
                         else:
                             logger.info(f"No health data returned for {app.instance_name}. Skipping deletion checks.")
 

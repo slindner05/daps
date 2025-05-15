@@ -213,22 +213,25 @@ def format_for_discord(
             List of Discord embed field dicts.
         """
         fields: List[Dict[str, Any]] = []
+
         grouped: Dict[str, List[str]] = {}
-        for item in output:
+        for item in o:
             title = item.get("title", "Untitled")
-            year = f" ({item.get('year')})" if item.get("year") else ""
-            db_id = item["tvdb_id"] if item["instance_type"] == "sonarr" else item.get("tmdb_id")
-            grouped.setdefault(item["instance_name"], []).append(f"{title}{year}\t{db_id}")
-        for instance, lines in grouped.items():
-            text = "\n".join(lines)
-            fields.extend(chunk_code_fields(instance, text))
-        if fields:
-            summary = (
-                "🔍 The following items were flagged as removed from TMDB/TVDB and would be deleted."
-                if output and output[0].get("dry_run")
-                else "🧹 The following items were deleted as they were removed from TMDB/TVDB."
-            )
-            fields.insert(0, {"name": "Summary", "value": f"```{summary}```"})
+            year = f" ({item['year']})" if item.get("year") else ""
+            tmdb = f"tmdb-{item.get('tmdb_id')}" if item.get("tmdb_id") else "tmdb-❓"
+            imdb = f"imdb-{item.get('imdb_id')}" if item.get("imdb_id") else None
+            ids = f"{tmdb}" + (f", {imdb}" if imdb else "")
+            grouped.setdefault("Removed Items", []).append(f"{title}{year}\n   🔗 {ids}")
+
+        for name, lines in grouped.items():
+            fields.extend(chunk_code_fields(name, "\n".join(lines)))
+
+        summary = (
+            "🔍 The following items were flagged as removed from TMDB/TVDB and would be deleted."
+            if o and o[0].get("status") == "deleted" and o[0].get("dry_run")
+            else "🧹 The following items were deleted as they were removed from TMDB/TVDB."
+        )
+        fields.insert(0, {"name": "Summary", "value": f"```{summary}```"})
         return fields
 
     def fmt_nohl(o: Any) -> List[Dict[str, Any]]:
